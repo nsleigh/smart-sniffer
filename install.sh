@@ -644,11 +644,11 @@ pick_drives() {
     if [ "$has_lsblk" = "true" ] && [ -n "$lsblk_out" ]; then
       local lsblk_line
       # Match by NAME="dname" in the pairs output.
-      lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"$dname\"")
+      lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"$dname\"" || true)
       # NVMe: smartctl returns controller path (/dev/nvme0) but lsblk uses
       # namespace path (nvme0n1). Fall back to ${name}n1 if exact match fails.
       if [ -z "$lsblk_line" ] && [[ "$dname" == nvme* ]]; then
-        lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"${dname}n1\"")
+        lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"${dname}n1\"" || true)
       fi
       if [ -n "$lsblk_line" ]; then
         # Extract fields from key="value" pairs. Handles spaces in MODEL, empty VENDOR, etc.
