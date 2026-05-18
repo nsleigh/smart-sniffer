@@ -687,19 +687,6 @@ pick_drives() {
 
   default_nums=$(IFS=','; echo "${default_selected[*]}")
 
-  # If all drives are green (no yellow), skip the picker entirely.
-  local has_yellow="false"
-  for i in "${!dev_paths[@]}"; do
-    if [ "${is_yellow[$i]}" = "1" ]; then
-      has_yellow="true"
-      break
-    fi
-  done
-
-  if [ "$has_yellow" = "false" ]; then
-    return
-  fi
-
   # Display the picker.
   echo ""
   echo -e "  ${BOLD}Drive Scanner${NC}"
@@ -725,9 +712,19 @@ pick_drives() {
   done
 
   echo ""
-  echo "  Yellow drives use network storage or unknown transport and may not"
-  echo "  support SMART. They are excluded from the default selection."
-  echo ""
+  # Only show yellow explanation if there are yellow drives.
+  local has_yellow="false"
+  for i in "${!dev_paths[@]}"; do
+    if [ "${is_yellow[$i]}" = "1" ]; then
+      has_yellow="true"
+      break
+    fi
+  done
+  if [ "$has_yellow" = "true" ]; then
+    echo "  Yellow drives use network storage or unknown transport and may not"
+    echo "  support SMART. They are excluded from the default selection."
+    echo ""
+  fi
 
   local range_hint="1"
   [ "$count" -gt 1 ] && range_hint="1,2..${count}"
