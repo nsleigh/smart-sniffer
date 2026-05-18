@@ -623,7 +623,9 @@ pick_drives() {
   if command -v lsblk &>/dev/null; then
     has_lsblk="true"
     local lsblk_out
-    lsblk_out=$(lsblk -o NAME,SIZE,MODEL,TRAN,VENDOR --nodeps --noheadings 2>/dev/null || true)
+    # Use -P (pairs) for unambiguous key="value" output. Eliminates all
+    # column-alignment issues when MODEL has spaces or VENDOR/TRAN is empty.
+    lsblk_out=$(lsblk -P -o NAME,SIZE,MODEL,TRAN,VENDOR --nodeps --noheadings 2>/dev/null || true)
   fi
 
   for i in "${!dev_paths[@]}"; do
@@ -641,22 +643,23 @@ pick_drives() {
     # Enrich from lsblk if available.
     if [ "$has_lsblk" = "true" ] && [ -n "$lsblk_out" ]; then
       local lsblk_line
-      lsblk_line=$(echo "$lsblk_out" | awk -v d="$dname" '$1 == d {print; exit}')
+      # Match by NAME="dname" in the pairs output.
+      lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"$dname\"")
       # NVMe: smartctl returns controller path (/dev/nvme0) but lsblk uses
       # namespace path (nvme0n1). Fall back to ${name}n1 if exact match fails.
       if [ -z "$lsblk_line" ] && [[ "$dname" == nvme* ]]; then
-        lsblk_line=$(echo "$lsblk_out" | awk -v d="${dname}n1" '$1 == d {print; exit}')
+        lsblk_line=$(echo "$lsblk_out" | grep -m1 "NAME=\"${dname}n1\"")
       fi
       if [ -n "$lsblk_line" ]; then
-        dev_size[$i]=$(echo "$lsblk_line" | awk '{print $2}')
-        dev_model[$i]=$(echo "$lsblk_line" | awk '{$1=""; $2=""; $NF=""; sub(/[[:space:]]*$/, ""); sub(/^[[:space:]]+/, ""); NF--; print}')
-        local tran_field
-        tran_field=$(echo "$lsblk_line" | awk '{print $(NF-1)}')
-        # TRAN can be empty if lsblk can't detect transport.
-        if [ -n "$tran_field" ] && echo "$tran_field" | grep -qE '^(sata|nvme|usb|sas|iscsi|fc|ide|scsi)$'; then
-          dev_tran[$i]="$tran_field"
+        # Extract fields from key="value" pairs. Handles spaces in MODEL, empty VENDOR, etc.
+        dev_size[$i]=$(echo "$lsblk_line" | sed -n 's/.*SIZE="\([^"]*\)".*/\1/p')
+        dev_model[$i]=$(echo "$lsblk_line" | sed -n 's/.*MODEL="\([^"]*\)".*/\1/p')
+        dev_vendor[$i]=$(echo "$lsblk_line" | sed -n 's/.*VENDOR="\([^"]*\)".*/\1/p')
+        local tran_val
+        tran_val=$(echo "$lsblk_line" | sed -n 's/.*TRAN="\([^"]*\)".*/\1/p')
+        if [ -n "$tran_val" ]; then
+          dev_tran[$i]="$tran_val"
         fi
-        dev_vendor[$i]=$(echo "$lsblk_line" | awk '{print $NF}')
       fi
     fi
 
