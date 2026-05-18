@@ -642,6 +642,11 @@ pick_drives() {
     if [ "$has_lsblk" = "true" ] && [ -n "$lsblk_out" ]; then
       local lsblk_line
       lsblk_line=$(echo "$lsblk_out" | awk -v d="$dname" '$1 == d {print; exit}')
+      # NVMe: smartctl returns controller path (/dev/nvme0) but lsblk uses
+      # namespace path (nvme0n1). Fall back to ${name}n1 if exact match fails.
+      if [ -z "$lsblk_line" ] && [[ "$dname" == nvme* ]]; then
+        lsblk_line=$(echo "$lsblk_out" | awk -v d="${dname}n1" '$1 == d {print; exit}')
+      fi
       if [ -n "$lsblk_line" ]; then
         dev_size[$i]=$(echo "$lsblk_line" | awk '{print $2}')
         dev_model[$i]=$(echo "$lsblk_line" | awk '{$1=""; $2=""; $NF=""; sub(/[[:space:]]*$/, ""); sub(/^[[:space:]]+/, ""); NF--; print}')
