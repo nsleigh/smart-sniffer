@@ -574,6 +574,244 @@ pick_filesystems() {
 }
 
 # ---------------------------------------------------------------------------
+# Drive picker — shows drives detected by smartctl, enriched with lsblk
+# metadata. Auto-excludes iSCSI/FC/unknown transports (yellow).
+# Sets EXCLUDE_YAML with config entries and EXCLUDE_DISPLAY with paths.
+# ---------------------------------------------------------------------------
+
+pick_drives() {
+  EXCLUDE_YAML=""
+  EXCLUDE_DISPLAY=""
+
+  # macOS: skip the drive picker. lsblk doesn't exist so transport detection
+  # is blind (everything shows "unknown"/yellow). macOS doesn't expose iSCSI
+  # LUNs as block devices the way Linux does -- this picker targets Linux
+  # servers (Proxmox, TrueNAS, Synology, etc.).
+  if [[ "$OSTYPE" == darwin* ]]; then
+    return
+  fi
+
+  # Need smartctl to enumerate drives.
+  if ! command -v smartctl &>/dev/null; then
+    return
+  fi
+
+  local scan_json
+  scan_json=$(smartctl --json --scan 2>/dev/null || true)
+  if [ -z "$scan_json" ]; then
+    return
+  fi
+
+  # Extract device paths from smartctl --scan JSON.
+  local -a dev_paths=()
+  while IFS= read -r p; do
+    [ -n "$p" ] && dev_paths+=("$p")
+  done < <(echo "$scan_json" | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+
+  if [ "${#dev_paths[@]}" -eq 0 ]; then
+    return
+  fi
+
+  # Build lsblk lookup table (Linux only): dev -> "SIZE MODEL TRAN VENDOR"
+  local -a dev_size=()
+  local -a dev_model=()
+  local -a dev_tran=()
+  local -a dev_vendor=()
+  local -a dev_byid=()
+  local has_lsblk="false"
+
+  if command -v lsblk &>/dev/null; then
+    has_lsblk="true"
+    local lsblk_out
+    lsblk_out=$(lsblk -o NAME,SIZE,MODEL,TRAN,VENDOR --nodeps --noheadings 2>/dev/null || true)
+  fi
+
+  for i in "${!dev_paths[@]}"; do
+    local dpath="${dev_paths[$i]}"
+    local dname
+    dname=$(basename "$dpath")
+
+    # Defaults
+    dev_size[$i]=""
+    dev_model[$i]=""
+    dev_tran[$i]="unknown"
+    dev_vendor[$i]=""
+    dev_byid[$i]=""
+
+    # Enrich from lsblk if available.
+    if [ "$has_lsblk" = "true" ] && [ -n "$lsblk_out" ]; then
+      local lsblk_line
+      lsblk_line=$(echo "$lsblk_out" | awk -v d="$dname" '$1 == d {print; exit}')
+      if [ -n "$lsblk_line" ]; then
+        dev_size[$i]=$(echo "$lsblk_line" | awk '{print $2}')
+        dev_model[$i]=$(echo "$lsblk_line" | awk '{$1=""; $2=""; $NF=""; sub(/[[:space:]]*$/, ""); sub(/^[[:space:]]+/, ""); NF--; print}')
+        local tran_field
+        tran_field=$(echo "$lsblk_line" | awk '{print $(NF-1)}')
+        # TRAN can be empty if lsblk can't detect transport.
+        if [ -n "$tran_field" ] && echo "$tran_field" | grep -qE '^(sata|nvme|usb|sas|iscsi|fc|ide|scsi)$'; then
+          dev_tran[$i]="$tran_field"
+        fi
+        dev_vendor[$i]=$(echo "$lsblk_line" | awk '{print $NF}')
+      fi
+    fi
+
+    # Try to find a stable by-id path.
+    if [ -d "/dev/disk/by-id" ]; then
+      local byid_path
+      byid_path=$(find /dev/disk/by-id -maxdepth 1 -lname "*/$dname" ! -name 'wwn-*' 2>/dev/null | head -1)
+      if [ -n "$byid_path" ]; then
+        dev_byid[$i]="$byid_path"
+      fi
+    fi
+  done
+
+  local count="${#dev_paths[@]}"
+  if [ "$count" -eq 0 ]; then
+    return
+  fi
+
+  # Determine which drives are "yellow" (pre-excluded).
+  local -a is_yellow=()
+  local -a default_selected=()
+  local default_nums=""
+
+  for i in "${!dev_paths[@]}"; do
+    local tran="${dev_tran[$i]}"
+    if [ "$tran" = "iscsi" ] || [ "$tran" = "fc" ] || [ "$tran" = "unknown" ]; then
+      is_yellow[$i]="1"
+    else
+      is_yellow[$i]="0"
+      default_selected+=("$((i + 1))")
+    fi
+  done
+
+  default_nums=$(IFS=','; echo "${default_selected[*]}")
+
+  # If all drives are green (no yellow), skip the picker entirely.
+  local has_yellow="false"
+  for i in "${!dev_paths[@]}"; do
+    if [ "${is_yellow[$i]}" = "1" ]; then
+      has_yellow="true"
+      break
+    fi
+  done
+
+  if [ "$has_yellow" = "false" ]; then
+    return
+  fi
+
+  # Display the picker.
+  echo ""
+  echo -e "  ${BOLD}Drive Scanner${NC}"
+  echo "  Select which drives to monitor with SMART Sniffer."
+  echo ""
+
+  for i in "${!dev_paths[@]}"; do
+    local num="$((i + 1))"
+    local dpath="${dev_paths[$i]}"
+    local size="${dev_size[$i]}"
+    local model="${dev_model[$i]}"
+    local tran="${dev_tran[$i]}"
+
+    # Build display line: "  1) /dev/sda  119.2G  LITEONIT LMT-128M6M  [sata]"
+    local label
+    label=$(printf "%-14s %6s  %-30s [%s]" "$dpath" "$size" "$model" "$tran")
+
+    if [ "${is_yellow[$i]}" = "1" ]; then
+      echo -e "    ${num}) ${YELLOW}${label}${NC}"
+    else
+      echo -e "    ${num}) ${GREEN}${label}${NC}"
+    fi
+  done
+
+  echo ""
+  echo "  Yellow drives use network storage or unknown transport and may not"
+  echo "  support SMART. They are excluded from the default selection."
+  echo ""
+
+  local range_hint="1"
+  [ "$count" -gt 1 ] && range_hint="1,2..${count}"
+  read -rp "  Monitor (${range_hint} / all / none) [${default_nums}]: " DRIVE_CHOICE < "$TTY_IN"
+  DRIVE_CHOICE="${DRIVE_CHOICE:-$default_nums}"
+
+  # Parse selection.
+  local -a selected_nums=()
+  case "$DRIVE_CHOICE" in
+    all|ALL|a|A)
+      for ((i=0; i<count; i++)); do
+        selected_nums+=("$((i + 1))")
+      done
+      ;;
+    none|NONE|n|N)
+      # Exclude everything -- unusual but valid.
+      ;;
+    *)
+      IFS=',' read -ra nums <<< "$DRIVE_CHOICE"
+      for num in "${nums[@]}"; do
+        num=$(echo "$num" | tr -d ' ')
+        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "$count" ]; then
+          selected_nums+=("$num")
+        else
+          warn "Skipping invalid choice: $num"
+        fi
+      done
+      ;;
+  esac
+
+  # Build exclude list: anything NOT selected is excluded.
+  local -a exclude_paths=()
+  for i in "${!dev_paths[@]}"; do
+    local num="$((i + 1))"
+    local is_selected="false"
+    for sel in "${selected_nums[@]}"; do
+      if [ "$sel" = "$num" ]; then
+        is_selected="true"
+        break
+      fi
+    done
+    if [ "$is_selected" = "false" ]; then
+      # Prefer by-id path for stability.
+      if [ -n "${dev_byid[$i]}" ]; then
+        exclude_paths+=("${dev_byid[$i]}")
+      else
+        exclude_paths+=("${dev_paths[$i]}")
+      fi
+    fi
+  done
+
+  if [ "${#exclude_paths[@]}" -eq 0 ]; then
+    info "All drives selected -- no exclusions."
+    return
+  fi
+
+  # Warn if every drive is excluded (VM, no local drives, etc.).
+  if [ "${#exclude_paths[@]}" -eq "${#dev_paths[@]}" ]; then
+    echo ""
+    warn "No drives selected for SMART monitoring."
+    echo "  The agent will still run (disk usage, mDNS) but won't report drive health."
+    read -rp "  Continue? [Y/n]: " _confirm < "$TTY_IN"
+    _confirm="${_confirm:-y}"
+    if [ "$_confirm" != "y" ] && [ "$_confirm" != "Y" ]; then
+      info "Re-run the installer to change drive selection."
+      EXCLUDE_YAML=""
+      EXCLUDE_DISPLAY=""
+      return
+    fi
+  fi
+
+  # Build YAML output.
+  EXCLUDE_YAML="exclude_devices:"
+  for ep in "${exclude_paths[@]}"; do
+    EXCLUDE_YAML="${EXCLUDE_YAML}
+  - \"${ep}\""
+  done
+
+  EXCLUDE_DISPLAY=$(IFS=', '; echo "${exclude_paths[*]}")
+  _pick_drives_total="$count"
+  success "Excluding ${#exclude_paths[@]} device(s): $EXCLUDE_DISPLAY"
+}
+
+# ---------------------------------------------------------------------------
 # Network interface picker — shows numbered list, user enters a number
 # or "all". Sets ADV_IFACE to the chosen interface or "" for auto-filter.
 # ---------------------------------------------------------------------------
@@ -1315,6 +1553,16 @@ if [ -f "$EXISTING_CONFIG" ]; then
         fi
       fi
 
+      # --- Upgrade path: offer drive picker if config has no exclude_devices ---
+      if ! grep -q '^exclude_devices:' "$EXISTING_CONFIG" 2>/dev/null && [ -n "$TTY_IN" ]; then
+        pick_drives
+        if [ -n "$EXCLUDE_YAML" ]; then
+          echo "" >> "$EXISTING_CONFIG"
+          echo "$EXCLUDE_YAML" >> "$EXISTING_CONFIG"
+          success "Drive exclusions added to existing config."
+        fi
+      fi
+
       # --- Upgrade path: offer filesystem picker if config has no filesystems ---
       if ! grep -q '^filesystems:' "$EXISTING_CONFIG" 2>/dev/null && [ -n "$TTY_IN" ]; then
         echo ""
@@ -1343,6 +1591,9 @@ if [ "$KEEP_CONFIG" = "false" ] && [ -n "$TTY_IN" ]; then
   read -rp "  Port [9099]: " PORT < "$TTY_IN"
   read -rp "  Bearer token for API auth (leave blank to disable): " TOKEN < "$TTY_IN"
   read -rp "  Scan interval (e.g. 60s, 30m, 24h) [60s]: " SCAN_INTERVAL < "$TTY_IN"
+
+  # --- Drive picker (exclude iSCSI/FC/unknown) ---
+  pick_drives
 
   # --- Disk usage picker ---
   echo ""
@@ -1455,6 +1706,10 @@ CONFEOF
   if [ -n "$STANDBY_MODE" ] && [ "$STANDBY_MODE" != "never" ]; then
     echo "standby_mode: $STANDBY_MODE" >> "$INSTALL_CFG/config.yaml"
   fi
+  if [ -n "$EXCLUDE_YAML" ]; then
+    echo "" >> "$INSTALL_CFG/config.yaml"
+    echo "$EXCLUDE_YAML" >> "$INSTALL_CFG/config.yaml"
+  fi
   if [ -n "$FS_YAML" ]; then
     echo "" >> "$INSTALL_CFG/config.yaml"
     echo "$FS_YAML" >> "$INSTALL_CFG/config.yaml"
@@ -1547,25 +1802,39 @@ else
   echo -e "  ${GREEN}✓${NC} mDNS:           ${_MDNS_INSTANCE}._smartha._tcp.local. (all physical)"
 fi
 
-# SMART drives — query the running agent if possible.
-_DRIVE_CURL="curl -sf http://localhost:$PORT/api/drives"
-if [ -n "$TOKEN" ]; then
-  _DRIVE_CURL="curl -sf -H \"Authorization: Bearer $TOKEN\" http://localhost:$PORT/api/drives"
-fi
-_DRIVE_JSON=$(eval "$_DRIVE_CURL" 2>/dev/null || true)
-if [ -n "$_DRIVE_JSON" ]; then
-  _DRIVE_COUNT=$(echo "$_DRIVE_JSON" | grep -o '"id"' | wc -l)
-  _DRIVE_NAMES=$(echo "$_DRIVE_JSON" | sed -n 's/.*"model" *: *"\([^"]*\)".*/\1/p' | awk '{printf "%s%s", sep, $0; sep=", "} END{print ""}')
-  if [ "$_DRIVE_COUNT" -gt 0 ]; then
-    echo -e "  ${GREEN}✓${NC} SMART drives:   ${_DRIVE_COUNT} detected"
-    if [ -n "$_DRIVE_NAMES" ]; then
-      echo "                    ${_DRIVE_NAMES}"
+# SMART drives — check installer state first, then query the running agent.
+# If the installer just excluded all drives, show that regardless of what the
+# (possibly not-yet-restarted) agent reports.
+if [ -n "$EXCLUDE_YAML" ] && [ "${#exclude_paths[@]}" -eq "${_pick_drives_total:-0}" ] && [ "${_pick_drives_total:-0}" -gt 0 ]; then
+  echo -e "  ${RED}✗${NC} SMART drives:   all excluded"
+  echo "                    ${EXCLUDE_DISPLAY}"
+else
+  _DRIVE_CURL="curl -sf http://localhost:$PORT/api/drives"
+  if [ -n "$TOKEN" ]; then
+    _DRIVE_CURL="curl -sf -H \"Authorization: Bearer $TOKEN\" http://localhost:$PORT/api/drives"
+  fi
+  _DRIVE_JSON=$(eval "$_DRIVE_CURL" 2>/dev/null || true)
+  if [ -n "$_DRIVE_JSON" ]; then
+    _DRIVE_COUNT=$(echo "$_DRIVE_JSON" | grep -o '"id"' | wc -l)
+    _DRIVE_NAMES=$(echo "$_DRIVE_JSON" | sed -n 's/.*"model" *: *"\([^"]*\)".*/\1/p' | awk '{printf "%s%s", sep, $0; sep=", "} END{print ""}')
+    if [ "$_DRIVE_COUNT" -gt 0 ] && [ -n "$EXCLUDE_YAML" ]; then
+      # Agent reports drives but installer added exclusions — show both.
+      echo -e "  ${GREEN}✓${NC} SMART drives:   ${_DRIVE_COUNT} detected"
+      if [ -n "$_DRIVE_NAMES" ]; then
+        echo "                    ${_DRIVE_NAMES}"
+      fi
+      echo -e "  ${YELLOW}○${NC} Excluded:       ${EXCLUDE_DISPLAY}"
+    elif [ "$_DRIVE_COUNT" -gt 0 ]; then
+      echo -e "  ${GREEN}✓${NC} SMART drives:   ${_DRIVE_COUNT} detected"
+      if [ -n "$_DRIVE_NAMES" ]; then
+        echo "                    ${_DRIVE_NAMES}"
+      fi
+    else
+      echo -e "  ${YELLOW}○${NC} SMART drives:   none detected"
     fi
   else
-    echo -e "  ${YELLOW}○${NC} SMART drives:   none detected"
+    echo -e "  ${YELLOW}○${NC} SMART drives:   (could not query)"
   fi
-else
-  echo -e "  ${YELLOW}○${NC} SMART drives:   (could not query)"
 fi
 
 # Disk usage monitoring.

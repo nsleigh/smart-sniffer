@@ -145,6 +145,19 @@ That's expected. The App (SMART Sniffer App from the HA add-on store) runs smart
 
 Yes. If you pass the physical SATA or NVMe controller through to the VM via Proxmox's PCI passthrough (IOMMU), the VM gets direct hardware access. SMART data will work, and you could run the agent inside the VM. But this ties the physical controller to one VM and is more complex to set up. The agent-on-host approach is simpler and is how most Proxmox users run SMART Sniffer.
 
+### iSCSI or network-attached storage shows warnings in the log
+
+If your Proxmox host mounts iSCSI LUNs, Ceph RBDs, or NFS datastores, smartctl will attempt to read SMART data from those block devices and fail -- iSCSI targets don't support SMART passthrough (the SCSI commands hit the target daemon, not a physical drive). This causes repeated log warnings and exit code 4 errors.
+
+The fix is to exclude those devices. If you're running the installer fresh, the drive picker detects iSCSI and other remote transports automatically and pre-excludes them. For existing installs, add the device paths to your config:
+
+```yaml
+exclude_devices:
+  - /dev/sdb    # iSCSI LUN
+```
+
+Then restart: `sudo systemctl restart smartha-agent`. Run `smartha-agent --discover` to confirm which drives are local and which are remote.
+
 ## Example config
 
 A typical Proxmox host `config.yaml` at `/etc/smartha-agent/config.yaml`:
@@ -153,6 +166,8 @@ A typical Proxmox host `config.yaml` at `/etc/smartha-agent/config.yaml`:
 port: 9099
 scan_interval: 120
 advertise_interface: vmbr0
+exclude_devices:
+  - /dev/sdb    # iSCSI LUN -- no SMART passthrough
 ```
 
 No `device_overrides` needed unless you have a hardware RAID controller. Standard SATA and NVMe drives are detected automatically.

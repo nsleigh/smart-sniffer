@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,9 +41,11 @@ type Config struct {
 	Filesystems        []FilesystemConfig `yaml:"filesystems"`         // empty = disk usage monitoring disabled
 	StandbyMode        string             `yaml:"standby_mode"`        // never, standby, sleep, idle (default: never)
 	DeviceOverrides    []DeviceOverride   `yaml:"device_overrides"`    // manual protocol overrides per device path
+	ExcludeDevices     []string           `yaml:"exclude_devices"`     // device paths to skip during scan
 	Discover           bool               `yaml:"-"`                   // set by --discover flag; not read from config file
 	NoWrite            bool               `yaml:"-"`                   // set by --no-write flag; skips config write in discover mode
 	SmartctlPath       string             `yaml:"-"`                   // resolved path to smartctl binary; set by resolveSmartctlPath()
+	excludeSet         map[string]bool    // normalized set built once at load time (unexported, not serialized)
 }
 
 // defaultConfig returns sane defaults.
@@ -238,7 +242,56 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	// Validate and normalize exclude_devices.
+	// Build a resolved set once so Refresh() does a simple map lookup per poll.
+	cfg.excludeSet = make(map[string]bool, len(cfg.ExcludeDevices))
+	seen := make(map[string]bool, len(cfg.ExcludeDevices))
+	for i, raw := range cfg.ExcludeDevices {
+		if !strings.HasPrefix(raw, "/dev/") && !strings.HasPrefix(raw, `\\.\`) {
+			return nil, fmt.Errorf("exclude_devices[%d]: %q is not a valid device path", i, raw)
+		}
+		if seen[raw] {
+			log.Printf("WARNING: duplicate entry in exclude_devices: %s", raw)
+		}
+		seen[raw] = true
+
+		// Resolve symlinks so /dev/disk/by-id/... and /dev/sdX both match.
+		resolved, err := filepath.EvalSymlinks(raw)
+		if err != nil {
+			log.Printf("WARNING: excluded device %s not found: %v (will still exclude if it appears later)", raw, err)
+			cfg.excludeSet[raw] = true
+			continue
+		}
+		cfg.excludeSet[resolved] = true
+		if resolved != raw {
+			cfg.excludeSet[raw] = true // match on either form
+		}
+	}
+
+	// Warn on exclude + override conflicts.
+	for _, ov := range cfg.DeviceOverrides {
+		if cfg.excludeSet[ov.Device] {
+			log.Printf("WARNING: %s is in both exclude_devices and device_overrides; excluding", ov.Device)
+		}
+	}
+
 	return &cfg, nil
+}
+
+// IsDeviceExcluded returns true if the given device path (or its symlink
+// target) is in the exclude_devices set. Safe to call with a nil Config.
+func (c *Config) IsDeviceExcluded(devPath string) bool {
+	if c == nil || len(c.excludeSet) == 0 {
+		return false
+	}
+	if c.excludeSet[devPath] {
+		return true
+	}
+	// Resolve the scanned path in case it's a symlink not in the raw set.
+	if resolved, err := filepath.EvalSymlinks(devPath); err == nil && resolved != devPath {
+		return c.excludeSet[resolved]
+	}
+	return false
 }
 
 // MDNSEnabled returns true if mDNS advertisement is enabled (default: true).

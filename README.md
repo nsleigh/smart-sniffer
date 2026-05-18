@@ -155,6 +155,8 @@ token: "your-secret-token"    # optional -- omit to disable auth
 scan_interval: 60s
 standby_mode: standby          # optional -- never, standby, sleep, or idle
 advertise_interface: eth0      # optional -- restrict mDNS to this interface
+exclude_devices:               # optional -- set by installer's drive picker
+  - /dev/sdb
 filesystems:                   # optional -- set by installer's disk usage picker
   - path: /
     uuid: a1b2c3d4-5678-90ab-cdef-1234567890ab
@@ -163,6 +165,8 @@ filesystems:                   # optional -- set by installer's disk usage picke
 ```
 
 All options can also be set via CLI flags: `--port`, `--token`, `--scan-interval`, `--interface`, `--config`.
+
+**Exclude devices:** Device paths listed in `exclude_devices` are skipped during every scan. The agent resolves symlinks at startup, so `/dev/disk/by-id/...` paths and their `/dev/sdX` equivalents both match. The installer's drive picker sets this automatically when it detects iSCSI, Fibre Channel, or other remote-storage transports that don't support SMART passthrough. You can also add paths manually and restart the service. If a device appears in both `exclude_devices` and `device_overrides`, the exclusion wins and a warning is logged.
 
 **Scan interval:** Uses Go duration syntax -- `30s`, `5m`, `1h`, `24h` are all valid. When `standby_mode` is set, the agent skips sleeping drives and serves cached data, so the interval does not cause unnecessary wake-ups. When `standby_mode` is `never` (the default), each poll wakes any drive that is spun down. This is the *agent-side* read cadence and is separate from the HA Poll Interval entity, which reflects how often Home Assistant pulls fresh data from the agent itself.
 

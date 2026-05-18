@@ -103,6 +103,9 @@ func RunAgent(ctx context.Context, ready chan<- struct{}) error {
 	if cfg.StandbyMode != "never" {
 		log.Printf("Standby mode: %s", cfg.StandbyMode)
 	}
+	if len(cfg.ExcludeDevices) > 0 {
+		log.Printf("Excluding %d device(s): %s", len(cfg.ExcludeDevices), strings.Join(cfg.ExcludeDevices, ", "))
+	}
 
 	// --- Cache / background scanner ---
 	cache := NewDriveCache(cfg)
@@ -671,6 +674,18 @@ func (dc *DriveCache) Refresh() {
 				log.Printf("added override device: %s (protocol: %s)", ov.Device, ov.Protocol)
 			}
 		}
+	}
+
+	// Filter excluded devices before any smartctl -a calls.
+	if dc.cfg != nil && len(dc.cfg.excludeSet) > 0 {
+		var filtered []scanDevice
+		for _, dev := range scanResult.Devices {
+			if dc.cfg.IsDeviceExcluded(dev.Name) {
+				continue
+			}
+			filtered = append(filtered, dev)
+		}
+		scanResult.Devices = filtered
 	}
 
 	newDrives := make(map[string]DriveInfo, len(scanResult.Devices))

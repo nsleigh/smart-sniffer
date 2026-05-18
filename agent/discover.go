@@ -58,7 +58,7 @@ func RunDiscover(cfg *Config, noWrite bool) error {
 		for _, dev := range scanResult.Devices {
 			r := probeOneDrive(cfg.SmartctlPath, dev.Name, dev.Protocol)
 			results = append(results, r)
-			printDriveResult(r)
+			printDriveResult(r, cfg)
 		}
 	}
 
@@ -92,7 +92,7 @@ func RunDiscover(cfg *Config, noWrite bool) error {
 
 			r := probeOneDrive(cfg.SmartctlPath, path, "sat")
 			results = append(results, r)
-			printDriveResult(r)
+			printDriveResult(r, cfg)
 		}
 	} else if platform == "qnap" {
 		fmt.Println()
@@ -230,8 +230,13 @@ func probeOneDrive(smartctlPath, path, protocol string) discoverDriveResult {
 }
 
 // printDriveResult prints a single drive's discover result to stdout.
-func printDriveResult(r discoverDriveResult) {
-	fmt.Printf("\n  %s\n", r.path)
+// If the drive is in the config's exclude list, an annotation is appended.
+func printDriveResult(r discoverDriveResult, cfg *Config) {
+	excludeTag := ""
+	if cfg.IsDeviceExcluded(r.path) {
+		excludeTag = "  [excluded by config]"
+	}
+	fmt.Printf("\n  %s%s\n", r.path, excludeTag)
 
 	if r.satRetried {
 		fmt.Printf("    Scan protocol: %s\n", r.scanProto)
