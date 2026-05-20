@@ -2,6 +2,25 @@
 
 All notable changes to SMART Sniffer are documented here.
 
+## v0.5.13 -- 2026-05-20
+
+Agent-only release. No integration or installer changes.
+
+### Fixed
+- **Custom protocols in `device_overrides` now work** -- the agent previously only passed `-d sat` to smartctl, silently dropping any other protocol. Protocols like `jmb39x-q,N` (JMicron USB RAID bridges), `usbcypress`, `megaraid,N`, and others were accepted in the config but never sent to smartctl, causing "command line parse error" failures. The agent now passes any custom protocol through to smartctl via `-d`. Standard scan-detected protocols (ata, scsi, nvme) are still handled automatically. Fixes #29.
+
+### Added
+- **v0.5.8 through v0.5.12** (installer-only, not individually changelogged):
+  - **Drive picker** -- the installer now shows all detected drives and lets you choose which ones to monitor. Remote transports (iSCSI, Fibre Channel) and unknown transports are flagged so you can exclude them. Useful for Proxmox hosts with iSCSI LUNs, NAS boxes with USB backup drives, or any setup where you don't want every block device polled.
+  - **`exclude_devices` config field** -- YAML list of device paths the agent skips during scan. Symlink-aware. Set automatically by the drive picker or manually in config.yaml.
+  - **`--discover` exclude annotation** -- excluded devices show `[excluded by config]` in discovery output.
+  - **NVMe namespace path fallback** -- the drive picker now correctly maps NVMe controller paths (e.g. `/dev/nvme0`) to namespace paths (`nvme0n1`) for enrichment from lsblk.
+  - **Robust lsblk parsing** -- switched from positional column parsing to `lsblk -P` key-value pairs, eliminating column-alignment bugs when fields are empty.
+
+### Upgrade Notes
+- **Agent-only update.** Re-run the installer or replace the binary. No integration changes needed.
+- **If you use `device_overrides` with non-SAT protocols:** update to v0.5.13 and your overrides will start working. Re-run `smartha-agent --discover` to verify.
+
 ## v0.5.7 -- 2026-05-16
 
 Integration-only release. No agent or installer changes.
