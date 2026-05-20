@@ -180,8 +180,8 @@ func probeOneDrive(smartctlPath, path, protocol string) discoverDriveResult {
 	r := discoverDriveResult{path: path, scanProto: protocol}
 
 	args := []string{"--json", "-a"}
-	if strings.EqualFold(protocol, "sat") {
-		args = append(args, "-d", "sat")
+	if protocol != "" && !isAutoDetectedProtocol(protocol) {
+		args = append(args, "-d", protocol)
 	}
 	args = append(args, path)
 

@@ -779,6 +779,19 @@ func decodeHealthBits(code int) string {
 	return strings.Join(flags, ", ")
 }
 
+// isAutoDetectedProtocol returns true for protocols that smartctl assigns during
+// --scan/--scan-open. These don't need an explicit -d flag because smartctl
+// already knows how to talk to them. Custom protocols from device_overrides
+// (e.g. "sat", "jmb39x-q,0", "usbcypress") are NOT in this list and will be
+// passed to smartctl via -d.
+func isAutoDetectedProtocol(p string) bool {
+	switch strings.ToLower(p) {
+	case "scsi", "ata", "nvme":
+		return true
+	}
+	return false
+}
+
 // runSmartctl runs smartctl with the given args and returns (output, exitCode, error).
 // error is non-nil only for non-ExitError failures (missing binary, permissions, etc.).
 func runSmartctl(smartctlPath string, args []string) ([]byte, int, error) {
@@ -809,8 +822,8 @@ func (dc *DriveCache) fetchDriveInfo(devicePath, protocol string, skipStandby bo
 	if dc.standbyMode != "never" && !skipStandby {
 		args = append(args, "-n", dc.standbyMode)
 	}
-	if strings.EqualFold(protocol, "sat") {
-		args = append(args, "-d", "sat")
+	if protocol != "" && !isAutoDetectedProtocol(protocol) {
+		args = append(args, "-d", protocol)
 	}
 	args = append(args, devicePath)
 
