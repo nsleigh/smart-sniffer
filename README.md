@@ -249,6 +249,8 @@ curl -sSL https://raw.githubusercontent.com/DAB-LABS/smart-sniffer/main/install.
 irm https://raw.githubusercontent.com/DAB-LABS/smart-sniffer/main/install.ps1 | iex
 ```
 
+> **Important:** This must be run from **PowerShell**, not Command Prompt (CMD). If you see `'irm' is not recognized`, you're in CMD -- open PowerShell as Administrator instead. Right-click the Start button and select **Terminal (Admin)** or search for "PowerShell" in the Start menu.
+
 > **Note:** Requires v0.5.1 or later. Earlier Windows builds had a service startup bug tracked as [#13](https://github.com/DAB-LABS/smart-sniffer/issues/13). Service events appear in Event Viewer under Windows Logs → Application with source `SmartHA-Agent`.
 
 </details>
