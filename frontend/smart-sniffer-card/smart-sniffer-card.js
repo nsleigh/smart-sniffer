@@ -1049,6 +1049,15 @@ class SmartSnifferCard extends HTMLElement {
       drives = drives.filter(d => cfg.drives.includes(d.device_id));
     }
 
+    // When a drive or agent filter is active, restrict filesystems to agents
+    // that appear in the filtered drive list so storage tiles stay in sync
+    // with the drive chips.
+    let filesystems = this._filesystems;
+    if (cfg.agents.length > 0 || cfg.drives.length > 0) {
+      const allowedAgents = new Set(drives.map(d => d.agent_name));
+      filesystems = filesystems.filter(fs => allowedAgents.has(fs.agent_name));
+    }
+
     // Loading detection.
     const isLoading = this._isLoading(drives);
 
@@ -1056,7 +1065,7 @@ class SmartSnifferCard extends HTMLElement {
     card.appendChild(this._renderHeader(drives, this._agentCount, isLoading));
 
     // Empty state.
-    if (drives.length === 0 && this._filesystems.length === 0 && !isLoading) {
+    if (drives.length === 0 && filesystems.length === 0 && !isLoading) {
       card.appendChild(this._renderEmpty());
       return;
     }
@@ -1084,9 +1093,9 @@ class SmartSnifferCard extends HTMLElement {
     // inline within each agent's group, so there is no separate storage
     // section anymore. The section renders if EITHER drives or filesystems
     // exist (filesystem-only agents are valid).
-    const haveStorage = cfg.show_storage && this._filesystems.length > 0;
+    const haveStorage = cfg.show_storage && filesystems.length > 0;
     if (drives.length > 0 || haveStorage) {
-      card.appendChild(this._renderDrivesSection(drives, driveAgentOrder));
+      card.appendChild(this._renderDrivesSection(drives, driveAgentOrder, filesystems));
     }
 
     // Scroll handling after a re-render. Two cases:
@@ -1307,7 +1316,7 @@ class SmartSnifferCard extends HTMLElement {
      The agentOrder argument comes from _computeAgentOrder so the same
      hierarchy is honored even for agents that have no drives (filesystem-
      only agents). */
-  _renderDrivesSection(drives, agentOrder) {
+  _renderDrivesSection(drives, agentOrder, filesystems) {
     const cfg = this._config;
     const visible = (cfg.show_ok === false)
       ? drives.filter(d => d.state !== "healthy" && d.state !== "cached")
@@ -1344,7 +1353,7 @@ class SmartSnifferCard extends HTMLElement {
     // Group filesystems by agent name (when storage display is enabled).
     const filesystemsByAgent = {};
     if (cfg.show_storage) {
-      for (const fs of this._filesystems) {
+      for (const fs of filesystems) {
         const key = fs.agent_name || "agent";
         if (!filesystemsByAgent[key]) filesystemsByAgent[key] = [];
         filesystemsByAgent[key].push(fs);
