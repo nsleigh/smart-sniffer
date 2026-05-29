@@ -1882,6 +1882,13 @@ class SmartSnifferCardEditor extends HTMLElement {
     const cfg = this._config;
     const hass = this._hass;
 
+    // Save scroll positions of check-lists before the full innerHTML replacement,
+    // so frequent hass updates don't jump the list back to the top mid-scroll.
+    const savedScrolls = [];
+    this.shadowRoot.querySelectorAll(".check-list").forEach(el => {
+      savedScrolls.push(el.scrollTop);
+    });
+
     // Discover drive-device options for the filter checklist.
     const driveOptions = [];
     const agentOptions = [];
@@ -2005,6 +2012,11 @@ class SmartSnifferCardEditor extends HTMLElement {
             <div class="hint">Leave all unchecked to show every drive.</div>`
         }
       </div>`;
+
+    // Restore scroll positions so a hass-triggered re-render doesn't reset the list.
+    this.shadowRoot.querySelectorAll(".check-list").forEach((el, i) => {
+      if (savedScrolls[i] != null) el.scrollTop = savedScrolls[i];
+    });
 
     this.shadowRoot.querySelectorAll("[data-key]").forEach(el => {
       el.addEventListener("change", () => {
