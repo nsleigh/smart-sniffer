@@ -1870,7 +1870,19 @@ class SmartSnifferCardEditor extends HTMLElement {
     this._hass = null;
   }
 
-  set hass(hass) { this._hass = hass; if (this._config) this._render(); }
+  set hass(hass) {
+    const prev = this._hass;
+    this._hass = hass;
+    if (!this._config) return;
+    // Entity states update constantly but don't affect the editor UI.
+    // Only re-render when the structural data that populates the drive/agent
+    // checklists actually changes.
+    if (prev &&
+        prev.entities       === hass.entities       &&
+        prev.devices        === hass.devices        &&
+        prev.config_entries === hass.config_entries) return;
+    this._render();
+  }
 
   setConfig(config) {
     this._config = {
@@ -1890,6 +1902,13 @@ class SmartSnifferCardEditor extends HTMLElement {
   _render() {
     const cfg = this._config;
     const hass = this._hass;
+
+    // Preserve focus and cursor position across re-renders so a structural
+    // hass update doesn't steal focus from an input the user is interacting with.
+    const focused      = this.shadowRoot.activeElement;
+    const focusKey     = focused?.dataset?.key ?? null;
+    const focusSelStart = focused?.selectionStart ?? null;
+    const focusSelEnd   = focused?.selectionEnd   ?? null;
 
     // Save scroll positions of check-lists before the full innerHTML replacement,
     // so frequent hass updates don't jump the list back to the top mid-scroll.
@@ -2026,6 +2045,17 @@ class SmartSnifferCardEditor extends HTMLElement {
     this.shadowRoot.querySelectorAll(".check-list").forEach((el, i) => {
       if (savedScrolls[i] != null) el.scrollTop = savedScrolls[i];
     });
+
+    // Restore focus and cursor so re-renders don't interrupt typing or selection.
+    if (focusKey) {
+      const el = this.shadowRoot.querySelector(`[data-key="${focusKey}"]`);
+      if (el) {
+        el.focus();
+        if (focusSelStart !== null && el.setSelectionRange) {
+          try { el.setSelectionRange(focusSelStart, focusSelEnd); } catch (_) {}
+        }
+      }
+    }
 
     this.shadowRoot.querySelectorAll("[data-key]").forEach(el => {
       el.addEventListener("change", () => {
