@@ -499,6 +499,7 @@ Drive-specific `smartctl -a --json` output samples are especially welcome — th
 - [ ] Agent: container-aware filesystem reporting (MNT_PREFIX path mapping for Docker deployments)
 - [ ] Agent: runtime interface detection (replace static prefix list with OS-level physical NIC detection)
 - [ ] Integration: parent-agent device hierarchy + optional area-on-setup (drives nest under agent via `via_device`, area inherits via HA prompt)
+- [ ] Integration: split consolidated wear-leveling / uncorrectable / pending-sector sensors into separate diagnostic entities when a drive reports multiple variants (v0.5.7 follow-up; affects multi-variant drives like Silicon Motion SSDs)
 
 ---
 
