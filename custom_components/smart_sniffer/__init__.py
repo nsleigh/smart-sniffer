@@ -63,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "model": drive_data.get("model"),
                     "serial": drive_data.get("serial"),
                     "protocol": drive_data.get("protocol"),
-                    "device_path": drive_data.get("device") or (drive_data.get("smart_data") or {}).get("device", {}).get("name"),
+                    "device_path": drive_data.get("device_path"),
                     "attention": {
                         "state": state,
                         "severity": severity,
@@ -85,7 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             return {
                 "agent": {
-                    "name": health.entry.title,
+                    "name": health.config_entry.title,
                     "host": health.host,
                     "os": health.data.get("os"),
                     "uptime": health.data.get("uptime_seconds"),
