@@ -18,6 +18,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 
+from .attention import evaluate_attention
 from .const import DOMAIN, FILESYSTEMS_KEY, SERVICE_GET_DRIVE_DATA
 from .coordinator import AgentHealthCoordinator, SmartSnifferCoordinator
 
@@ -53,22 +54,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coord = domain_data[entry_id]["coordinator"]
             health = domain_data[entry_id]["health_coordinator"]
 
-            drives: dict[str, Any] = {
-                drive_id: drive_data
-                for drive_id, drive_data in coord.data.items()
-                if not drive_id.startswith("_")
-            }
+            drives: dict[str, Any] = {}
+            for drive_id, drive_data in coord.data.items():
+                if drive_id.startswith("_"):
+                    continue
+                state, severity, reasons = evaluate_attention(drive_data)
+                drives[drive_id] = {
+                    "model": drive_data.get("model"),
+                    "serial": drive_data.get("serial"),
+                    "protocol": drive_data.get("protocol"),
+                    "device_path": drive_data.get("device") or (drive_data.get("smart_data") or {}).get("device", {}).get("name"),
+                    "attention": {
+                        "state": state,
+                        "severity": severity,
+                        "reasons": reasons,
+                    },
+                    "smart_data": drive_data.get("smart_data"),
+                }
+
+            raw_filesystems: list[dict[str, Any]] = coord.data.get(FILESYSTEMS_KEY, [])
+            filesystems = [
+                {
+                    "mountpoint": fs.get("mountpoint"),
+                    "total_bytes": fs.get("total_bytes"),
+                    "used_bytes": fs.get("used_bytes"),
+                    "use_percent": fs.get("use_percent"),
+                }
+                for fs in raw_filesystems
+            ]
 
             return {
                 "agent": {
                     "name": health.entry.title,
                     "host": health.host,
-                    "port": health.port,
-                    "version": health.data.get("version"),
                     "os": health.data.get("os"),
-                    "connected": health.data.get("connected"),
+                    "uptime": health.data.get("uptime_seconds"),
+                    "version": health.data.get("version"),
                 },
                 "drives": drives,
+                "filesystems": filesystems,
             }
 
         hass.services.async_register(
