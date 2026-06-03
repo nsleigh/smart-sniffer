@@ -348,6 +348,12 @@ This probes every drive the OS exposes, tests protocol detection, and tells you 
 
 Paste the `--discover` output into a GitHub issue if you need help -- it gives us everything we need to diagnose remotely.
 
+### Raw SMART data
+
+Need the full SMART dump for a drive? The integration includes everything smartctl returns in the diagnostics download. Go to **Settings > Devices & Services > SMART Sniffer > three-dot menu > Download Diagnostics**. The downloaded JSON file contains the complete raw SMART data for every drive on that agent, along with the attention evaluation and agent metadata. Useful for debugging unexpected sensor values, sharing in bug reports, or passing to an AI for deeper analysis.
+
+The agent also exposes raw data via its REST API at `http://<agent-ip>:9099/api/drives` (summary) and `http://<agent-ip>:9099/api/drives/{id}` (full SMART JSON for a single drive).
+
 ### NAS devices
 
 NAS platforms have platform-specific quirks -- proprietary device paths (Synology), SCSI-to-ATA protocol mismatches (QNAP), outdated smartmontools versions, and LXC bridge interfaces that confuse mDNS. The agent handles most of this automatically since v0.5.5, but some platforms need `device_overrides` or a newer smartmontools. See the platform-specific guides: [Synology](docs/guides/synology.md), [QNAP](docs/guides/qnap.md), [TrueNAS SCALE](docs/guides/truenas-scale.md), [Unraid](docs/guides/unraid.md).
