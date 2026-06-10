@@ -2,6 +2,18 @@
 
 All notable changes to SMART Sniffer are documented here.
 
+## v0.5.16 -- 2026-06-10
+
+Agent-only release. No integration or installer changes. Fixes [smart-sniffer-app#6](https://github.com/DAB-LABS/smart-sniffer-app/issues/6).
+
+### Fixed
+- **Health endpoint no longer blocked by bearer token auth** -- when a bearer token is configured, `/api/health` was behind the auth middleware. External systems polling the health endpoint without a token (Supervisor watchdog, load balancers, monitoring tools) received 401 instead of 200, which caused the HAOS App's Supervisor watchdog to restart the container in a loop (~every 4 minutes). The health endpoint is now exempt from auth. It only exposes operational status (version, uptime, drive count) -- no SMART data or drive identifiers. Reported by @circa1665.
+
+### Upgrade Notes
+- **Agent-only update.** Rebuild or download the updated agent binary. No integration or installer changes needed.
+- **HAOS App users with a bearer token:** update the agent to stop the watchdog restart loop. The App will also ship a workaround (TCP watchdog) for users who haven't updated the agent yet.
+- **Standalone agent users:** this bug was invisible to you (nothing externally health-checks the standalone agent), but updating is still recommended.
+
 ## v0.5.15 -- 2026-06-09
 
 Integration-only release. No agent or installer changes. Community contribution by @nsleigh.
