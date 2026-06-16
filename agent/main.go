@@ -494,6 +494,12 @@ func parseScanOutput(output string) []string {
 func authMiddleware(token string, next http.Handler) http.Handler {
 	expected := []byte("Bearer " + token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Health endpoint is always public -- Supervisor watchdog,
+		// load balancers, and monitoring tools need unauthenticated access.
+		if r.URL.Path == "/api/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		auth := []byte(r.Header.Get("Authorization"))
 		if subtle.ConstantTimeCompare(auth, expected) != 1 {
 			w.Header().Set("Content-Type", "application/json")

@@ -2,6 +2,29 @@
 
 All notable changes to SMART Sniffer are documented here.
 
+## v0.5.16 -- 2026-06-10
+
+Agent-only release. No integration or installer changes. Fixes [smart-sniffer-app#6](https://github.com/DAB-LABS/smart-sniffer-app/issues/6).
+
+### Fixed
+- **Health endpoint no longer blocked by bearer token auth** -- when a bearer token is configured, `/api/health` was behind the auth middleware. External systems polling the health endpoint without a token (Supervisor watchdog, load balancers, monitoring tools) received 401 instead of 200, which caused the HAOS App's Supervisor watchdog to restart the container in a loop (~every 4 minutes). The health endpoint is now exempt from auth. It only exposes operational status (version, uptime, drive count) -- no SMART data or drive identifiers. Reported by @circa1665.
+
+### Upgrade Notes
+- **Agent-only update.** Rebuild or download the updated agent binary. No integration or installer changes needed.
+- **HAOS App users with a bearer token:** update the agent to stop the watchdog restart loop. The App will also ship a workaround (TCP watchdog) for users who haven't updated the agent yet.
+- **Standalone agent users:** this bug was invisible to you (nothing externally health-checks the standalone agent), but updating is still recommended.
+
+## v0.5.15 -- 2026-06-09
+
+Integration-only release. No agent or installer changes. Community contribution by @nsleigh.
+
+### Added
+- **`smart_sniffer.get_drive_data` service call** -- returns the full cached SMART dataset for any agent, including raw attributes, our attention evaluation (state, severity, reasons), filesystem usage, and agent metadata. Designed for automation workflows that pipe drive data to an AI for analysis. Call it from an automation, pass the JSON to a conversation agent (Google AI, OpenAI, Claude, Ollama), and get back a plain-English health report. Also works from Developer Tools > Services for manual inspection. Implements #37, contributed by @nsleigh in PR #38.
+
+### Upgrade Notes
+- **Integration-only update.** Update via HACS or manually replace `custom_components/smart_sniffer/`. No agent update needed.
+- **New service:** after updating, the `smart_sniffer.get_drive_data` service appears in Developer Tools > Services. Select your agent from the dropdown and call it to see the full response.
+
 ## v0.5.14 -- 2026-05-30
 
 Integration-only release. No agent or installer changes.

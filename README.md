@@ -34,6 +34,8 @@ SMART Sniffer follows the trail, sniffing out the [early warning signs](https://
 
 **Auto-discovery** — Agents advertise themselves on the local network via mDNS/Zeroconf. Home Assistant discovers them automatically — no manual IP entry needed.
 
+**AI-ready drive analysis** -- A service call returns full SMART data, health assessments, and storage metrics for any agent. Pipe it to Google AI, ChatGPT, Claude, or Ollama for automated drive health reports with zero parsing.
+
 **Secure by default** — Optional bearer token authentication between agent and integration. SHA256-verified binary downloads.
 
 <br>
@@ -348,6 +350,12 @@ This probes every drive the OS exposes, tests protocol detection, and tells you 
 
 Paste the `--discover` output into a GitHub issue if you need help -- it gives us everything we need to diagnose remotely.
 
+### Raw SMART data
+
+Need the full SMART dump for a drive? The integration includes everything smartctl returns in the diagnostics download. Go to **Settings > Devices & Services > SMART Sniffer > three-dot menu > Download Diagnostics**. The downloaded JSON file contains the complete raw SMART data for every drive on that agent, along with the attention evaluation and agent metadata. Useful for debugging unexpected sensor values, sharing in bug reports, or passing to an AI for deeper analysis.
+
+The agent also exposes raw data via its REST API at `http://<agent-ip>:9099/api/drives` (summary) and `http://<agent-ip>:9099/api/drives/{id}` (full SMART JSON for a single drive).
+
 ### NAS devices
 
 NAS platforms have platform-specific quirks -- proprietary device paths (Synology), SCSI-to-ATA protocol mismatches (QNAP), outdated smartmontools versions, and LXC bridge interfaces that confuse mDNS. The agent handles most of this automatically since v0.5.5, but some platforms need `device_overrides` or a newer smartmontools. See the platform-specific guides: [Synology](docs/guides/synology.md), [QNAP](docs/guides/qnap.md), [TrueNAS SCALE](docs/guides/truenas-scale.md), [Unraid](docs/guides/unraid.md).
@@ -359,6 +367,26 @@ Drives behind hardware RAID controllers (MegaRAID, HP SmartArray, 3ware, Areca) 
 ### smartmontools version
 
 The agent requires smartmontools **7.0+** for JSON output support. Most current Linux distros ship 7.x. Older or embedded systems (Synology DSM, QNAP QTS, some RHEL/CentOS 7 installs) may ship 6.x or older. Run `smartctl --version` to check. The agent logs a clear error on startup if the version is too old.
+
+<br>
+
+## AI & Automation
+
+SMART Sniffer includes a `smart_sniffer.get_drive_data` service call that returns the complete cached SMART dataset for any agent. The response includes raw SMART attributes, our attention evaluation (state, severity, and reasons), filesystem usage, and agent metadata -- everything an LLM needs to produce a meaningful health assessment.
+
+**What's in the response:**
+
+| Key | Content |
+|-----|---------|
+| `agent` | Name, host, OS, uptime, version |
+| `drives` | Per-drive: model, serial, protocol, device path, attention state/severity/reasons, full SMART JSON |
+| `filesystems` | Per-mount: mountpoint, total bytes, used bytes, percentage |
+
+**Example use case: automated weekly health report.** Create an HA automation that runs every Monday morning, calls `smart_sniffer.get_drive_data` for each agent, passes the JSON to a conversation agent (Google AI, OpenAI, Claude, Ollama) with a prompt like "Analyze these SMART readings and flag anything concerning," then emails you the AI's response. The AI can catch patterns like rising reallocated sector counts, aging drives approaching end-of-life, or storage filling up -- things the raw sensor values alone don't always make obvious.
+
+The service uses `supports_response: only`, so it also works from **Developer Tools > Services** for manual inspection of the full response payload.
+
+For one-off analysis without automation, use **Download Diagnostics** (Settings > Devices & Services > SMART Sniffer > three-dot menu). The downloaded JSON contains the same raw SMART data and can be pasted directly into any AI chat interface. See [Raw SMART data](#raw-smart-data) above.
 
 <br>
 
@@ -499,7 +527,8 @@ Drive-specific `smartctl -a --json` output samples are especially welcome — th
 - [ ] Agent: container-aware filesystem reporting (MNT_PREFIX path mapping for Docker deployments)
 - [ ] Agent: runtime interface detection (replace static prefix list with OS-level physical NIC detection)
 - [ ] Integration: parent-agent device hierarchy + optional area-on-setup (drives nest under agent via `via_device`, area inherits via HA prompt)
-- [ ] Integration: split consolidated wear-leveling / uncorrectable / pending-sector sensors into separate diagnostic entities when a drive reports multiple variants (v0.5.7 follow-up; affects multi-variant drives like Silicon Motion SSDs)
+- [x] Integration: split consolidated wear-leveling / uncorrectable / pending-sector sensors into separate diagnostic entities when a drive reports multiple variants -- shipped v0.5.14
+- [x] Integration: `smart_sniffer.get_drive_data` service call for AI/automation access to full SMART data -- shipped v0.5.15, community PR by @nsleigh
 
 ---
 
